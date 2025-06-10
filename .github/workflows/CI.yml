@@ -28,34 +28,6 @@ jobs:
         mkdir dist
         mv *AppImage* dist/
 
-    - name: Calculate artifact hash
-      id: hash
-      run: |
-        cd dist
-        hash=$(find . -name "*.AppImage*" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
-        echo "hash=$hash" >> $GITHUB_OUTPUT
-        echo "Current artifact hash: $hash"
-
-    - name: Check for changes
-      id: check-changes
-      run: |
-        # Get the hash from the last release
-        last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
-          | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
-        
-        current_hash="${{ steps.hash.outputs.hash }}"
-        
-        if [ "$last_hash" != "$current_hash" ] || [ -z "$last_hash" ]; then
-          echo "release-needed=true" >> $GITHUB_OUTPUT
-          echo "Changes detected or no previous release found. Release needed."
-          echo "Previous hash: $last_hash"
-          echo "Current hash: $current_hash"
-        else
-          echo "release-needed=false" >> $GITHUB_OUTPUT
-          echo "No changes detected. Skipping release."
-        fi
-
     - name: Add timestamp to AppImage files
       if: steps.check-changes.outputs.release-needed == 'true'
       run: |
@@ -95,28 +67,6 @@ jobs:
         - uses: actions/download-artifact@v4.1.8
           with:
             name: AppImage
-
-        - name: Create release body
-          id: release-body
-          run: |
-            cat > release_body.md << 'EOF'
-            Automated release created on ${{ github.event.head_commit.timestamp || github.run_started_at }}
-            
-            **Build Information:**
-            - Run ID: ${{ github.run_id }}
-            - Run Number: ${{ github.run_number }}
-            - Commit: ${{ github.sha }}
-            - Hash: ${{ needs.build.outputs.artifact-hash }}
-            
-            **Files in this release:**
-            EOF
-            
-            # List all AppImage files
-            for file in *.AppImage*; do
-              if [ -f "$file" ]; then
-                echo "- $file" >> release_body.md
-              fi
-            done
 
         - name: release
           uses: marvinpinto/action-automatic-releases@latest
