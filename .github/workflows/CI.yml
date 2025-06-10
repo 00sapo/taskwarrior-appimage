@@ -96,6 +96,28 @@ jobs:
           with:
             name: AppImage
 
+        - name: Create release body
+          id: release-body
+          run: |
+            cat > release_body.md << 'EOF'
+            Automated release created on ${{ github.event.head_commit.timestamp || github.run_started_at }}
+            
+            **Build Information:**
+            - Run ID: ${{ github.run_id }}
+            - Run Number: ${{ github.run_number }}
+            - Commit: ${{ github.sha }}
+            - Hash: ${{ needs.build.outputs.artifact-hash }}
+            
+            **Files in this release:**
+            EOF
+            
+            # List all AppImage files
+            for file in *.AppImage*; do
+              if [ -f "$file" ]; then
+                echo "- $file" >> release_body.md
+              fi
+            done
+
         - name: release
           uses: marvinpinto/action-automatic-releases@latest
           with:
@@ -105,15 +127,5 @@ jobs:
             draft: false
             files: |
               *.AppImage*
-            body: |
-              Automated release created on ${{ github.event.head_commit.timestamp || github.run_started_at }}
-              
-              **Build Information:**
-              - Run ID: ${{ github.run_id }}
-              - Run Number: ${{ github.run_number }}
-              - Commit: ${{ github.sha }}
-              - Hash: ${{ needs.build.outputs.artifact-hash }}
-              
-              **Files in this release:**
-              ${{ github.workspace }}
+            body_path: release_body.md
             repo_token: ${{ secrets.GITHUB_TOKEN }}
