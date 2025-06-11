@@ -122,7 +122,7 @@ if [ -n "$DEPENDENCES" ]; then
   ./.local/share/junest/bin/junest -- yay --noconfirm -S $DEPENDENCES
 fi
 if [ -n "$APP" ]; then
-  ./.local/share/junest/bin/junest -- yay --noconfirm -S alsa-lib gtk3 xapp
+  # ./.local/share/junest/bin/junest -- yay --noconfirm -S alsa-lib gtk3 xapp
   ./.local/share/junest/bin/junest -- yay --noconfirm -S "$APP"
   ./.local/share/junest/bin/junest -- glib-compile-schemas /usr/share/glib-2.0/schemas/
 else
