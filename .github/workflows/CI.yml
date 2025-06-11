@@ -17,44 +17,52 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Get previous hash
+        run: |
+          # Get the hash from the last release and save it to a file
+          last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
+            | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
+
+          echo "$last_hash" > previous_hash.txt
+          echo "Previous hash: $last_hash"
+
       - name: build
-        if: always()
         run: |
           sudo apt update && sudo apt install desktop-file-utils
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           chmod a+x ./*-junest.sh
           ./*-junest.sh
-          mkdir dist
-          mv *AppImage* dist/
 
-      - name: Calculate artifact hash
-        id: hash
-        run: |
-          cd dist
-          hash=$(find . -name "*.AppImage*" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
-          echo "hash=$hash" >> $GITHUB_OUTPUT
-          echo "Current artifact hash: $hash"
-
-      - name: Check for changes
+      - name: Check if build was needed
         id: check-changes
         run: |
-          # Get the hash from the last release
-          last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
-            | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
-
-          current_hash="${{ steps.hash.outputs.hash }}"
-
-          if [ "$last_hash" != "$current_hash" ] || [ -z "$last_hash" ]; then
+          if [ -f "build_needed.txt" ]; then
             echo "release-needed=true" >> $GITHUB_OUTPUT
-            echo "Changes detected or no previous release found. Release needed."
-            echo "Previous hash: $last_hash"
-            echo "Current hash: $current_hash"
+            echo "Build completed - release needed"
           else
             echo "release-needed=false" >> $GITHUB_OUTPUT
-            echo "No changes detected. Skipping release."
+            echo "No changes detected - build skipped"
           fi
+
+      - name: Get current hash
+        id: hash
+        run: |
+          if [ -f "current_hash.txt" ]; then
+            current_hash=$(cat current_hash.txt)
+            echo "hash=$current_hash" >> $GITHUB_OUTPUT
+            echo "Current hash: $current_hash"
+          else
+            echo "hash=" >> $GITHUB_OUTPUT
+            echo "No hash file found"
+          fi
+
+      - name: Prepare artifacts
+        if: steps.check-changes.outputs.release-needed == 'true'
+        run: |
+          mkdir dist
+          mv *AppImage* dist/ 2>/dev/null || echo "No AppImage files found"
 
       - name: Add timestamp to AppImage files
         if: steps.check-changes.outputs.release-needed == 'true'
@@ -92,6 +100,7 @@ jobs:
               fi
             fi
           done
+
       - name: Upload artifact
         if: steps.check-changes.outputs.release-needed == 'true'
         uses: actions/upload-artifact@v4.4.0

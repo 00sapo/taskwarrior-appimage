@@ -92,6 +92,40 @@ _install_junest() {
   # Update arch linux in junest
   ./.local/share/junest/bin/junest -- sudo pacman -Syy
   ./.local/share/junest/bin/junest -- sudo pacman --noconfirm -Syu
+
+  #############################################################################
+  #	CHECK IF PACKAGES CHANGED
+  #############################################################################
+
+  # Get current package list and hash
+  echo "-----------------------------------------------------------------------------"
+  echo " CHECKING PACKAGE VERSIONS"
+  echo "-----------------------------------------------------------------------------"
+
+  ./.local/share/junest/bin/junest -- pacman -Q | sort >current_packages.txt
+  current_hash=$(sha256sum current_packages.txt | cut -d' ' -f1)
+  echo "Current packages hash: $current_hash"
+  echo "$current_hash" >current_hash.txt
+
+  # Check previous hash
+  if [ -f "../previous_hash.txt" ]; then
+    previous_hash=$(cat ../previous_hash.txt)
+    echo "Previous packages hash: $previous_hash"
+
+    if [ "$current_hash" = "$previous_hash" ] && [ ! -z "$previous_hash" ]; then
+      echo "No package changes detected. Skipping AppImage build."
+      exit 0
+    else
+      echo "Package changes detected. Proceeding with AppImage build."
+      touch ../build_needed.txt
+    fi
+  else
+    echo "No previous hash found. Proceeding with AppImage build."
+    touch ../build_needed.txt
+  fi
+
+  package_count=$(wc -l <current_packages.txt)
+  echo "Total packages: $package_count"
 }
 
 if ! test -d "$HOME/.local/share/junest"; then
@@ -567,6 +601,9 @@ find ./"$APP".AppDir/.junest/usr -type f -regex '.*\.so.*' -exec strip --strip-d
 find ./"$APP".AppDir/.junest/usr/bin -type f ! -regex '.*\.so.*' -exec strip --strip-unneeded {} \;
 find ./"$APP".AppDir/.junest/usr -type d -empty -delete
 _enable_mountpoints_for_the_inbuilt_bubblewrap
+
+# Move hash file to root for CI to pick up
+mv archlinux/current_hash.txt ./current_hash.txt 2>/dev/null || echo "Hash file already moved"
 
 #############################################################################
 #	CREATE THE APPIMAGE
