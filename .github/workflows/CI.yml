@@ -63,21 +63,35 @@ jobs:
         timestamp=$(date +"%Y%m%d_%H%M%S")
         for file in *.AppImage*; do
           if [ -f "$file" ]; then
-            # Extract name and extension
-            name="${file%.*}"
-            ext="${file##*.}"
+            # Split filename by dashes
+            IFS='-' read -ra PARTS <<< "$file"
             
-            # Add timestamp before extension
-            if [ "$name" != "$file" ]; then
-              # File has extension
-              mv "$file" "${name}_${timestamp}.${ext}"
+            # If we have multiple parts separated by dashes
+            if [ ${#PARTS[@]} -gt 1 ]; then
+              # Reconstruct with timestamp as second-to-last token
+              new_name=""
+              for ((i=0; i<${#PARTS[@]}-1; i++)); do
+                if [ $i -gt 0 ]; then
+                  new_name="${new_name}-"
+                fi
+                new_name="${new_name}${PARTS[$i]}"
+              done
+              new_name="${new_name}-${timestamp}-${PARTS[-1]}"
+              mv "$file" "$new_name"
             else
-              # File has no extension (just .AppImage)
-              mv "$file" "${file}_${timestamp}"
+              # No dashes, just append timestamp
+              name="${file%.*}"
+              ext="${file##*.}"
+              if [ "$name" != "$file" ]; then
+                # File has extension
+                mv "$file" "${name}_${timestamp}.${ext}"
+              else
+                # File has no extension
+                mv "$file" "${file}_${timestamp}"
+              fi
             fi
           fi
         done
-
     - name: Upload artifact
       if: steps.check-changes.outputs.release-needed == 'true'
       uses: actions/upload-artifact@v4.4.0
