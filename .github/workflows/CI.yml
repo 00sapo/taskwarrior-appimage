@@ -15,131 +15,132 @@ jobs:
       artifact-hash: ${{ steps.hash.outputs.hash }}
       release-needed: ${{ steps.check-changes.outputs.release-needed }}
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: build
-      if: always()
-      run: |
-        sudo apt update && sudo apt install desktop-file-utils
-        sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
-        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-        chmod a+x ./*-junest.sh
-        ./*-junest.sh
-        mkdir dist
-        mv *AppImage* dist/
+      - name: build
+        if: always()
+        run: |
+          sudo apt update && sudo apt install desktop-file-utils
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          chmod a+x ./*-junest.sh
+          ./*-junest.sh
+          mkdir dist
+          mv *AppImage* dist/
 
-    - name: Calculate artifact hash
-      id: hash
-      run: |
-        cd dist
-        hash=$(find . -name "*.AppImage*" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
-        echo "hash=$hash" >> $GITHUB_OUTPUT
-        echo "Current artifact hash: $hash"
+      - name: Calculate artifact hash
+        id: hash
+        run: |
+          cd dist
+          hash=$(find . -name "*.AppImage*" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+          echo "hash=$hash" >> $GITHUB_OUTPUT
+          echo "Current artifact hash: $hash"
 
-    - name: Check for changes
-      id: check-changes
-      run: |
-        # Get the hash from the last release
-        last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
-          | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
-        
-        current_hash="${{ steps.hash.outputs.hash }}"
-        
-        if [ "$last_hash" != "$current_hash" ] || [ -z "$last_hash" ]; then
-          echo "release-needed=true" >> $GITHUB_OUTPUT
-          echo "Changes detected or no previous release found. Release needed."
-          echo "Previous hash: $last_hash"
-          echo "Current hash: $current_hash"
-        else
-          echo "release-needed=false" >> $GITHUB_OUTPUT
-          echo "No changes detected. Skipping release."
-        fi
+      - name: Check for changes
+        id: check-changes
+        run: |
+          # Get the hash from the last release
+          last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
+            | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
 
-    - name: Add timestamp to AppImage files
-      if: steps.check-changes.outputs.release-needed == 'true'
-      run: |
-        cd dist
-        timestamp=$(date +"%Y%m%d_%H%M%S")
-        for file in *.AppImage*; do
-          if [ -f "$file" ]; then
-            # Split filename by dashes
-            IFS='-' read -ra PARTS <<< "$file"
-            
-            # If we have multiple parts separated by dashes
-            if [ ${#PARTS[@]} -gt 1 ]; then
-              # Reconstruct with timestamp as second-to-last token
-              new_name=""
-              for ((i=0; i<${#PARTS[@]}-1; i++)); do
-                if [ $i -gt 0 ]; then
-                  new_name="${new_name}-"
-                fi
-                new_name="${new_name}${PARTS[$i]}"
-              done
-              new_name="${new_name}-${timestamp}-${PARTS[-1]}"
-              mv "$file" "$new_name"
-            else
-              # No dashes, just append timestamp
-              name="${file%.*}"
-              ext="${file##*.}"
-              if [ "$name" != "$file" ]; then
-                # File has extension
-                mv "$file" "${name}_${timestamp}.${ext}"
+          current_hash="${{ steps.hash.outputs.hash }}"
+
+          if [ "$last_hash" != "$current_hash" ] || [ -z "$last_hash" ]; then
+            echo "release-needed=true" >> $GITHUB_OUTPUT
+            echo "Changes detected or no previous release found. Release needed."
+            echo "Previous hash: $last_hash"
+            echo "Current hash: $current_hash"
+          else
+            echo "release-needed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected. Skipping release."
+          fi
+
+      - name: Add timestamp to AppImage files
+        if: steps.check-changes.outputs.release-needed == 'true'
+        run: |
+          cd dist
+          timestamp=$(date +"%Y%m%d_%H%M%S")
+          for file in *.AppImage*; do
+            if [ -f "$file" ]; then
+              # Split filename by dashes
+              IFS='-' read -ra PARTS <<< "$file"
+              
+              # If we have multiple parts separated by dashes
+              if [ ${#PARTS[@]} -gt 1 ]; then
+                # Reconstruct with timestamp as second-to-last token
+                new_name=""
+                for ((i=0; i<${#PARTS[@]}-1; i++)); do
+                  if [ $i -gt 0 ]; then
+                    new_name="${new_name}-"
+                  fi
+                  new_name="${new_name}${PARTS[$i]}"
+                done
+                new_name="${new_name}-${timestamp}-${PARTS[-1]}"
+                mv "$file" "$new_name"
               else
-                # File has no extension
-                mv "$file" "${file}_${timestamp}"
+                # No dashes, just append timestamp
+                name="${file%.*}"
+                ext="${file##*.}"
+                if [ "$name" != "$file" ]; then
+                  # File has extension
+                  mv "$file" "${name}_${timestamp}.${ext}"
+                else
+                  # File has no extension
+                  mv "$file" "${file}_${timestamp}"
+                fi
               fi
             fi
-          fi
-        done
-    - name: Upload artifact
-      if: steps.check-changes.outputs.release-needed == 'true'
-      uses: actions/upload-artifact@v4.4.0
-      with:
-        name: AppImage
-        path: 'dist'
-        
+          done
+      - name: Upload artifact
+        if: steps.check-changes.outputs.release-needed == 'true'
+        uses: actions/upload-artifact@v4.4.0
+        with:
+          name: AppImage
+          path: "dist"
+
   release:
-      needs: [build]
-      if: needs.build.outputs.release-needed == 'true'
-      permissions: write-all
-      runs-on: ubuntu-latest
+    needs: [build]
+    if: needs.build.outputs.release-needed == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
 
-      steps:
-        - uses: actions/download-artifact@v4.1.8
-          with:
-            name: AppImage
+    steps:
+      - uses: actions/download-artifact@v4.1.8
+        with:
+          name: AppImage
 
-        - name: Create release body
-          id: release-body
-          run: |
-            cat > release_body.md << 'EOF'
-            Automated release created on ${{ github.event.head_commit.timestamp || github.run_started_at }}
-            
-            **Build Information:**
-            - Run ID: ${{ github.run_id }}
-            - Run Number: ${{ github.run_number }}
-            - Commit: ${{ github.sha }}
-            - Hash: ${{ needs.build.outputs.artifact-hash }}
-            
-            **Files in this release:**
-            EOF
-            
-            # List all AppImage files
-            for file in *.AppImage*; do
-              if [ -f "$file" ]; then
-                echo "- $file" >> release_body.md
-              fi
-            done
+      - name: Create release body with hash
+        id: release-body
+        run: |
+          cat > release_body.md << 'EOF'
+          Automated release created on ${{ github.event.head_commit.timestamp || github.run_started_at }}
 
-        - name: release
-          uses: marvinpinto/action-automatic-releases@latest
-          with:
-            title: "Continuous build - ${{ github.run_number }}"
-            automatic_release_tag: continuous
-            prerelease: false
-            draft: false
-            files: |
-              *.AppImage*
-            body_path: release_body.md
-            repo_token: ${{ secrets.GITHUB_TOKEN }}
+          **Build Information:**
+          - Run ID: ${{ github.run_id }}
+          - Run Number: ${{ github.run_number }}
+          - Commit: ${{ github.sha }}
+          - Hash: ${{ needs.build.outputs.artifact-hash }}
+
+          **Files in this release:**
+          EOF
+
+          # List all AppImage files
+          for file in *.AppImage*; do
+            if [ -f "$file" ]; then
+              echo "- $file" >> release_body.md
+            fi
+          done
+
+      - name: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: continuous
+          name: "Continuous build - ${{ github.run_number }}"
+          body_path: release_body.md
+          prerelease: false
+          draft: false
+          files: |
+            *.AppImage*
+          token: ${{ secrets.GITHUB_TOKEN }}
