@@ -21,7 +21,7 @@ jobs:
         run: |
           # Get the hash from the last release and save it to a file
           last_hash=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
             | jq -r '.body // ""' | grep -o 'Hash: [a-f0-9]*' | cut -d' ' -f2 || echo "")
 
           echo "$last_hash" > previous_hash.txt
@@ -120,34 +120,6 @@ jobs:
         with:
           name: AppImage
 
-      - name: Delete previous release
-        run: |
-          # Check if the release exists and delete it
-          release_id=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/continuous" \
-            | jq -r '.id // empty')
-
-          if [ ! -z "$release_id" ] && [ "$release_id" != "null" ]; then
-            echo "Deleting previous release with ID: $release_id"
-            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
-          else
-            echo "No previous release found to delete"
-          fi
-
-          # Delete the tag if it exists
-          tag_exists=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/continuous" \
-            | jq -r '.ref // empty')
-
-          if [ ! -z "$tag_exists" ] && [ "$tag_exists" != "null" ]; then
-            echo "Deleting tag: continuous"
-            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/continuous"
-          else
-            echo "No tag found to delete"
-          fi
-
       - name: Create release body with hash
         id: release-body
         run: |
@@ -173,7 +145,7 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: continuous
+          tag_name: build-${{ github.run_number }}
           name: "Continuous build - ${{ github.run_number }}"
           body_path: release_body.md
           prerelease: false
@@ -181,3 +153,19 @@ jobs:
           files: |
             *.AppImage*
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the 5 most recent releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | [(.published_at // .created_at), (.id | tostring), .tag_name] | @tsv' \
+            | sort -r \
+            | tail -n +6 \
+            | while IFS=$'\t' read -r created_at release_id tag_name; do
+                echo "Deleting release $tag_name ($created_at)"
+                gh api --method DELETE "repos/$GH_REPO/releases/$release_id"
+                encoded_tag=$(jq -rn --arg tag "$tag_name" '$tag | @uri')
+                gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$encoded_tag" || true
+              done
